@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sentry</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2430; --line:#262d38;
+    --fg:#e6edf3; --dim:#8b949e; --faint:#6e7681;
+    --crit:#ff5c5c; --high:#ff9f43; --med:#e3c34a; --low:#6e7681; --ok:#3fb950;
+    --accent:#58a6ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f6f8fa; --panel:#fff; --panel2:#f0f3f6; --line:#d8dee4;
+      --fg:#1f2328; --dim:#59636e; --faint:#818b98;
+      --crit:#cf222e; --high:#bc4c00; --med:#9a6700; --low:#818b98; --ok:#1a7f37;
+      --accent:#0969da;
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  header {
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    padding:14px 20px; border-bottom:1px solid var(--line); background:var(--panel);
+    position:sticky; top:0; z-index:10;
+  }
+  .brand { font-weight:700; font-size:16px; letter-spacing:.5px; }
+  .status { padding:3px 12px; border-radius:99px; font-weight:700; font-size:12px;
+            text-transform:uppercase; letter-spacing:.7px; }
+  .s-critical{background:var(--crit);color:#fff} .s-high{background:var(--high);color:#000}
+  .s-medium{background:var(--med);color:#000}   .s-low{background:var(--low);color:#fff}
+  .s-ok{background:var(--ok);color:#fff}
+  .spacer { flex:1; }
+  .meta { color:var(--dim); font-size:12px; }
+  main { padding:20px; display:grid; gap:16px; max-width:1500px; margin:0 auto; }
+  .row { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+  .card h2 { margin:0; padding:11px 14px; font-size:12px; letter-spacing:.8px;
+             text-transform:uppercase; color:var(--dim); border-bottom:1px solid var(--line); }
+  .card .body { padding:12px 14px; }
+
+  .tiles { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:14px; text-align:center; }
+  .tile .n { font-size:30px; font-weight:700; line-height:1.1; }
+  .tile .k { font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:var(--dim); }
+
+  table { width:100%; border-collapse:collapse; }
+  td, th { padding:6px 8px; text-align:left; vertical-align:top; }
+  tbody tr { border-top:1px solid var(--line); }
+  tbody tr:hover { background:var(--panel2); }
+  th { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--faint);
+       font-weight:600; }
+  .sev { font-weight:700; font-size:11px; letter-spacing:.5px; white-space:nowrap; }
+  .c-critical{color:var(--crit)} .c-high{color:var(--high)} .c-medium{color:var(--med)}
+  .c-low{color:var(--low)} .c-ok{color:var(--ok)}
+  .tag { display:inline-block; padding:1px 7px; border-radius:5px; background:var(--panel2);
+         border:1px solid var(--line); font-size:11px; color:var(--dim); }
+  .detail { color:var(--dim); word-break:break-word; }
+  .where { color:var(--faint); font-size:11px; word-break:break-all; }
+
+  .job { display:flex; align-items:center; gap:10px; padding:7px 0;
+         border-top:1px solid var(--line); }
+  .job:first-child { border-top:0; }
+  .dot { width:8px; height:8px; border-radius:99px; flex:none; background:var(--ok); }
+  .dot.stale { background:var(--med); } .dot.err { background:var(--crit); }
+  .dot.run { background:var(--accent); animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.25 } }
+  .job .name { flex:1; }
+  .job .age { color:var(--faint); font-size:11px; white-space:nowrap; }
+  button { font:inherit; font-size:11px; padding:2px 9px; border-radius:6px; cursor:pointer;
+           background:var(--panel2); color:var(--fg); border:1px solid var(--line); }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  .filters { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .filters button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .empty { color:var(--dim); padding:18px; text-align:center; }
+  .err { color:var(--crit); font-size:11px; white-space:pre-wrap; }
+  .spark { display:flex; align-items:flex-end; gap:2px; height:44px; }
+  .spark div { flex:1; min-width:2px; background:var(--accent); border-radius:1px 1px 0 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">sentry</span>
+  <span id="status" class="status s-ok">—</span>
+  <span class="spacer"></span>
+  <span class="meta" id="meta">connecting…</span>
+</header>
+
+<main>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="row" style="grid-template-columns:minmax(280px,1fr) minmax(280px,2fr)">
+    <div class="card">
+      <h2>Collectors</h2>
+      <div class="body" id="jobs"></div>
+    </div>
+    <div class="card">
+      <h2>Findings over the last 24h</h2>
+      <div class="body"><div class="spark" id="spark"></div>
+        <div class="meta" style="margin-top:8px" id="sparkmeta"></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="display:flex;gap:12px;align-items:center">
+      <span style="flex:1">Findings</span>
+      <span class="filters" id="filters"></span>
+    </h2>
+    <div id="findings"></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent public peers</h2>
+    <div id="peers"></div>
+  </div>
+</main>
+
+<script>
+const SEV = ["critical","high","medium","low"];
+let filter = null, state = null;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function ago(ts) {
+  if (!ts) return "never";
+  const d = Math.max(0, Math.floor(Date.now()/1000 - ts));
+  if (d < 60) return d + "s ago";
+  if (d < 3600) return Math.floor(d/60) + "m ago";
+  if (d < 86400) return Math.floor(d/3600) + "h ago";
+  return Math.floor(d/86400) + "d ago";
+}
+
+function render(s) {
+  state = s;
+
+  const st = document.getElementById("status");
+  st.textContent = s.worst === "ok" ? "all clear" : s.worst;
+  st.className = "status s-" + s.worst;
+
+  document.getElementById("meta").textContent =
+    `updated ${new Date().toLocaleTimeString()} · db ${s.db}`;
+
+  // severity tiles
+  document.getElementById("tiles").innerHTML = SEV.map(k => `
+    <div class="tile">
+      <div class="n c-${k}">${s.totals[k] || 0}</div>
+      <div class="k">${k}</div>
+    </div>`).join("") + `
+    <div class="tile">
+      <div class="n">${s.jobs.filter(j => j.ts).length}/${s.jobs.length}</div>
+      <div class="k">collectors live</div>
+    </div>`;
+
+  // collector status
+  document.getElementById("jobs").innerHTML = s.jobs.map(j => {
+    const stale = j.ts && (s.now - j.ts) > j.interval * 3;
+    const cls = j.running ? "run" : j.error ? "err" : stale || !j.ts ? "stale" : "";
+    const counts = SEV.filter(k => j.counts[k])
+      .map(k => `<span class="c-${k}">${j.counts[k]}${k[0]}</span>`).join(" ");
+    return `<div class="job">
+      <span class="dot ${cls}"></span>
+      <span class="name">${esc(j.label)} ${counts}</span>
+      <span class="age">${j.running ? "running…" : ago(j.ts)}${
+        j.duration ? " · " + j.duration + "s" : ""}</span>
+      <button onclick="runJob('${j.name}')">run</button>
+    </div>` + (j.error ? `<div class="err">${esc(j.error.split("\n").pop())}</div>` : "");
+  }).join("");
+
+  // 24h trend
+  const h = s.history || [];
+  const max = Math.max(1, ...h.map(p => p.critical + p.high + p.medium + p.low));
+  document.getElementById("spark").innerHTML = h.length
+    ? h.map(p => {
+        const t = p.critical + p.high + p.medium + p.low;
+        const c = p.critical ? "crit" : p.high ? "high" : p.medium ? "med" : "low";
+        return `<div style="height:${Math.max(2, t/max*44)}px;background:var(--${c})"
+                     title="${new Date(p.ts*1000).toLocaleTimeString()}: ${t}"></div>`;
+      }).join("")
+    : `<div class="empty" style="flex:1">no history yet</div>`;
+  document.getElementById("sparkmeta").textContent =
+    h.length ? `${h.length} samples · 15-minute buckets` : "";
+
+  // filters
+  document.getElementById("filters").innerHTML =
+    [["all", null], ...SEV.map(k => [k, k])].map(([label, k]) =>
+      `<button class="${filter === k ? "on" : ""}" onclick="setFilter(${
+        k ? `'${k}'` : "null"})">${label}</button>`).join("");
+
+  // findings
+  const rows = (s.findings || []).filter(f => !filter || f.severity === filter);
+  document.getElementById("findings").innerHTML = rows.length ? `
+    <table><thead><tr>
+      <th style="width:78px">Severity</th><th style="width:90px">Source</th>
+      <th style="width:46px">Host</th><th>What</th>
+    </tr></thead><tbody>${rows.map(f => `
+      <tr>
+        <td class="sev c-${f.severity}">${f.severity.toUpperCase()}</td>
+        <td><span class="tag">${esc(f.job)}</span></td>
+        <td class="detail">${esc(f.host || "")}</td>
+        <td>
+          <div>${esc(f.title)}</div>
+          <div class="detail">${esc(f.detail)}</div>
+          ${f.where ? `<div class="where">${esc(f.where)}</div>` : ""}
+        </td>
+      </tr>`).join("")}</tbody></table>`
+    : `<div class="empty">nothing at this level</div>`;
+
+  // peers
+  const p = s.peers || [];
+  document.getElementById("peers").innerHTML = p.length ? `
+    <table><thead><tr>
+      <th>Remote</th><th style="width:64px">Host</th><th style="width:56px">Seen</th>
+      <th style="width:110px">Last</th><th>Process</th>
+    </tr></thead><tbody>${p.map(x => `
+      <tr>
+        <td>${esc(x.remote_ip)}:${esc(x.remote_port)}</td>
+        <td class="detail">${esc(x.host)}</td>
+        <td class="detail">${esc(x.seen_count)}</td>
+        <td class="detail">${ago(x.last_seen)}</td>
+        <td class="detail">${esc(x.pname || "")}${
+          x.rdns ? ` <span class="where">${esc(x.rdns)}</span>` : ""}</td>
+      </tr>`).join("")}</tbody></table>`
+    : `<div class="empty">no public peers recorded yet</div>`;
+}
+
+function setFilter(k) { filter = k; if (state) render(state); }
+async function runJob(n) {
+  await fetch("/api/run?job=" + encodeURIComponent(n), { method: "POST" });
+  tick();
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    render(await r.json());
+  } catch (e) {
+    document.getElementById("meta").textContent = "daemon unreachable — retrying";
+  }
+}
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>
